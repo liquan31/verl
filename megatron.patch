@@ -1,0 +1,173 @@
+diff --git a/megatron/core/transformer/moe/moe_utils.py b/megatron/core/transformer/moe/moe_utils.py
+index 99ff2592..d59b0caa 100644
+--- a/megatron/core/transformer/moe/moe_utils.py
++++ b/megatron/core/transformer/moe/moe_utils.py
+@@ -583,6 +583,10 @@ def topk_softmax_with_capacity(
+             )
+         else:
+             return torch.topk(scores, k=topk, dim=1)
++    
++    ### 杩涜灏佽
++    from megatron.core.transformer.routing_replay import get_routing_replay_compute_topk
++    compute_topk = get_routing_replay_compute_topk(compute_topk)
+ 
+     if score_function == "softmax":
+         if use_pre_softmax:
+diff --git a/megatron/core/transformer/moe/router.py b/megatron/core/transformer/moe/router.py
+index 44c2a1d2..4f7172b6 100644
+--- a/megatron/core/transformer/moe/router.py
++++ b/megatron/core/transformer/moe/router.py
+@@ -141,6 +141,11 @@ class TopKRouter(Router):
+         else:
+             self.local_tokens_per_expert = None
+             self.expert_bias = None
++        
++        ### 娉ㄥ唽routing_replay
++        from megatron.core.transformer.routing_replay import register_routing_replay
++        register_routing_replay(self)
++        
+ 
+     def _maintain_float32_expert_bias(self):
+         """
+@@ -403,7 +408,7 @@ class TopKRouter(Router):
+                 with shape [num_tokens, num_experts].
+         """
+         seq_length, bsz = logits.shape[:2]
+-        logits = logits.view(-1, self.config.num_moe_experts)
++        logits = logits.view(-1, self.config.num_moe_experts) ### 杩欏潡娉ㄦ剰鎿嶄綔锛岃繘琛屼簡view
+ 
+         # Apply Z-Loss
+         logits = self.apply_z_loss(logits)
+diff --git a/megatron/core/transformer/routing_replay.py b/megatron/core/transformer/routing_replay.py
+new file mode 100644
+index 00000000..72b5db81
+--- /dev/null
++++ b/megatron/core/transformer/routing_replay.py
+@@ -0,0 +1,97 @@
++import os
++import torch
++
++
++ROUTING_REPLAY = None
++
++
++def set_routing_replay(replay):
++    global ROUTING_REPLAY
++    ROUTING_REPLAY = replay
++
++
++class RoutingReplay:
++    all_routing_replays = []
++
++    def __init__(self):
++        self.forward_index = 0
++        self.backward_index = 0
++        self.inference_index = 0
++        self.top_indices_list = []
++        RoutingReplay.all_routing_replays.append(self)
++
++    def record(self, top_indices):
++        # offload top_indices to CPU pinned memory
++        buf = torch.empty_like(top_indices, device="cpu", pin_memory=True)
++        buf.copy_(top_indices)
++        self.top_indices_list.append(buf)
++
++    def pop_forward(self):
++        top_indices = self.top_indices_list[self.forward_index]
++        self.forward_index += 1
++        return top_indices.to(torch.cuda.current_device())
++
++    def pop_backward(self):
++        top_indices = self.top_indices_list[self.backward_index]
++        self.backward_index += 1
++        return top_indices.to(torch.cuda.current_device())
++    
++    def pop_inference(self):
++        top_indices = self.top_indices_list[self.inference_index]
++        self.inference_index += 1
++        return top_indices.to(torch.cuda.current_device())
++
++    def clear(self):
++        self.forward_index = 0
++        self.backward_index = 0
++        self.inference_index = 0
++        self.top_indices_list = []
++
++    @staticmethod
++    def clear_all():
++        for replay in RoutingReplay.all_routing_replays:
++            replay.clear()
++
++
++def get_routing_replay_compute_topk(old_compute_topk):
++    def compute_topk(scores, topk, num_groups=None, group_topk=None):
++        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "1":
++            routing_replay_stage = os.environ["ROUTING_REPLAY_STAGE"]
++            if routing_replay_stage == "fallthrough":
++                return old_compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
++            elif routing_replay_stage == "record":
++                probs, top_indices = old_compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
++                ROUTING_REPLAY.record(top_indices)
++            elif routing_replay_stage == "inference":
++                top_indices = ROUTING_REPLAY.pop_inference()
++                assert (
++                    top_indices.shape[0] == scores.shape[0] and top_indices.shape[1] == topk
++                ), f"top_indices shape {top_indices.shape} does not match scores shape {scores.shape} and topk {topk}"
++                probs = scores.gather(1, top_indices)
++            elif routing_replay_stage == "replay_forward":
++                top_indices = ROUTING_REPLAY.pop_forward()
++                assert (
++                    top_indices.shape[0] == scores.shape[0] and top_indices.shape[1] == topk
++                ), f"top_indices shape {top_indices.shape} does not match scores shape {scores.shape} and topk {topk}"
++                probs = scores.gather(1, top_indices)
++            elif routing_replay_stage == "replay_backward":
++                top_indices = ROUTING_REPLAY.pop_backward()
++                assert (
++                    top_indices.shape[0] == scores.shape[0] and top_indices.shape[1] == topk
++                ), f"top_indices shape {top_indices.shape} does not match scores shape {scores.shape} and topk {topk}"
++                probs = scores.gather(1, top_indices)
++            return probs, top_indices
++        else:
++            return old_compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
++
++    return compute_topk
++
++
++def register_routing_replay(module):
++    if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "1":
++        module.routing_replay = RoutingReplay()
++
++        def pre_forward_hook(*args, **kwargs):
++            set_routing_replay(module.routing_replay)
++
++        module.register_forward_pre_hook(pre_forward_hook)
+\ No newline at end of file
+diff --git a/megatron/core/transformer/transformer_block.py b/megatron/core/transformer/transformer_block.py
+index 8209d695..2debc0c1 100755
+--- a/megatron/core/transformer/transformer_block.py
++++ b/megatron/core/transformer/transformer_block.py
+@@ -316,10 +316,16 @@ class TransformerBlock(MegatronModule):
+         # if self.apply_query_key_layer_scaling:
+         #     coeff = self.layer_number
+         #     self.norm_factor *= coeff
++        self.global_layer_numbers = []
++        ### just for test
++        self.global_layer_names = []
+         def build_layer(layer_spec, layer_number):
+             global_layer_number = layer_number + get_transformer_layer_offset(
+                 self.config, self.vp_stage
+             )  # 1-based index
++            self.global_layer_numbers.append(global_layer_number-1) ### 淇index
++            if "moe" in str(layer_spec.submodules.mlp.module):
++                self.global_layer_names.append(global_layer_number-1)
+             if self.config.heterogeneous_block_specs:
+                 layer_config = self.config.get_config_for_layer(global_layer_number)
+             else:
+@@ -343,6 +349,7 @@ class TransformerBlock(MegatronModule):
+                 for i, layer_spec in enumerate(self.submodules.layer_specs)
+             ]
+         )
++        print(f"---------- debug lyx: this pp rank is {parallel_state.get_pipeline_model_parallel_rank()}, this pp stage layers is {self.global_layer_numbers}, this pp stage names is {self.global_layer_names}")
+ 
+         # @TODO: add back account_for_embedding_in_pipeline_split (see issue #293)
+         # In pipeline parallelism, we want to add this LN only to the last stage of the pipeline
