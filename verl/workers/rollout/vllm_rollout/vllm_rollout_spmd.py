@@ -432,14 +432,15 @@ class vLLMRollout(BaseRollout):
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             self.sampling_params.detokenize = True
+            self.sampling_params.return_routing_info = self.config.return_routing_info
             outputs = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
                 lora_request=lora_requests,
                 use_tqdm=True,
             )
-
-            #! 打印推理结果信息
+            # print(f"lq debug, return_routing_info is {self.sampling_params.return_routing_info}")
+            # ! 打印推理结果信息
             try:
                 rank = torch.distributed.get_rank()
                 if rank == 0: #* 只打印 rank0 的
@@ -466,11 +467,15 @@ class vLLMRollout(BaseRollout):
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
             response = []
+            routing_infos = []
             rollout_log_probs = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
                     response.append(response_ids)
+                    routing_info = output.outputs[sample_id].routing_info
+                    if self.config.return_routing_info:
+                        routing_infos.append(routing_info)
                     if self.config.calculate_log_probs:
                         curr_log_prob = []
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
@@ -516,6 +521,12 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size,
         )
+        routing_infos_np = np.empty(len(routing_infos), dtype=object)
+        for i, r in enumerate(routing_infos):
+            routing_infos_np[i] = r.cpu().tolist()
+        non_tensor_batch["routing_infos"] = routing_infos_np
+        # if rank == 0:
+        #     print(f"lq debug, routing_infos is {routing_infos_np}")
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
@@ -591,7 +602,6 @@ def _monkey_patch_compute_logits(model, vocab_size: int):
         return logits
 
     model.compute_logits = MethodType(compute_logits, model)
-
 
 
 class vLLMAsyncRollout(BaseRollout):
