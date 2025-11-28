@@ -14,11 +14,67 @@
 # limitations under the License.
 
 import torch
+import numpy as np
 from megatron.core import parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
 
 from verl.utils.model import CausalLMOutputForPPO
 
+def get_preprocess_packed_route_info(
+    attention_mask: torch.Tensor, route_infos: np.ndarray, layer_ids: list ### [b, L, seqlen, k]
+):
+    batch_size = attention_mask.shape[0]
+    topK = len(route_infos[0][0][0])
+    seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
+    route_infos_lens_in_batch = torch.tensor([len(route_infos[i][0]) for i in range(len(route_infos))])
+    tp_size = mpu.get_tensor_model_parallel_world_size()
+    cp_size = mpu.get_context_parallel_world_size()
+    cp_rank = mpu.get_context_parallel_rank()
+    align_size = tp_size * cp_size * 2 if cp_size > 1 else tp_size
+    pad_size = (align_size - seqlens_in_batch % align_size) % align_size
+    route_info_pad_size = pad_size + (seqlens_in_batch-route_infos_lens_in_batch)
+    seqlens_in_batch_padded = route_infos_lens_in_batch + route_info_pad_size
+    
+    cu_seqlens = torch.zeros(batch_size + 1, dtype=torch.int32, device=attention_mask.device)
+    cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
+    cu_seqlens_padded = torch.zeros(batch_size + 1, dtype=torch.int32, device=attention_mask.device)
+    cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
+    
+    # seqlens_in_batch_cpu: list[int] = seqlens_in_batch.tolist()  # original valid lengths
+    route_infos_lens_in_batch_cpu: list[int] = route_infos_lens_in_batch.tolist() # original valid lengths
+    seqlens_in_batch_padded_cpu: list[int] = seqlens_in_batch_padded.tolist()  # lengths after padding
+    cu_seqlens_padded_cpu: list[int] = cu_seqlens_padded.tolist()  # start positions (after padding)
+    
+    shape = [len(layer_ids), sum(seqlens_in_batch_padded_cpu) // cp_size, topK]
+    
+    ### 默认router配置是0~k
+    route_infos_rmpad = torch.arange(topK, dtype=torch.int64, device=attention_mask.device).expand(*shape).clone() ### expand并没有重新开辟内存，只是改变了视图
+    for idx, layer in enumerate(layer_ids):
+        for i in range(batch_size):
+            if cp_size <= 1:
+                # seqlen = seqlens_in_batch_cpu[i]
+                route_info_len = route_infos_lens_in_batch_cpu[i]
+                start_idx = cu_seqlens_padded_cpu[i]
+                route_infos_rmpad[idx][start_idx : start_idx + route_info_len] = torch.tensor(route_infos[i][layer], dtype=torch.int64)
+                continue
+            seqlen_padded_i = seqlens_in_batch_padded_cpu[i]
+            seqlen = seqlen_padded_i // cp_size
+            half_seqlen = seqlen // 2
+            start_idx = cu_seqlens_padded_cpu[i] // cp_size
+            d = torch.tensor(route_infos[i][layer], dtype=torch.int64)
+            route_infos_rmpad[idx][start_idx : start_idx + half_seqlen] = d[
+                half_seqlen * cp_rank : half_seqlen * (cp_rank + 1)
+            ]
+            remain_start = seqlen_padded_i - half_seqlen * (cp_rank + 1)
+            remain_end = seqlen_padded_i - half_seqlen * cp_rank
+            remain_end = min(remain_end, d.shape[0])
+            remain_len = remain_end - remain_start
+            if remain_len > 0:
+                route_infos_rmpad[idx][start_idx + half_seqlen : start_idx + half_seqlen + remain_len] = d[
+                    remain_start:remain_end
+                ]
+                
+    return route_infos_rmpad
 
 def preprocess_packed_seqs(
     input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True

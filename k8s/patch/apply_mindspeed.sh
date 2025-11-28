@@ -30,4 +30,8 @@ echo -e "\033[1;32mApplied MindSpeed CP\033[0m"
 
 echo -e "\033[1;32mApplied MindSpeed Attention Scale\033[0m"
 
+\cp ./mindspeed.patch/2.2.0_core_r0.12.1/MindSpeed/mindspeed/core/transformer/transformer_block.py /opt/MindSpeed/mindspeed/core/transformer/transformer_block.py
+
+echo -e "\033[1;32mApplied MindSpeed Transformer Block\033[0m"
+
 set +x # 关闭调试模式

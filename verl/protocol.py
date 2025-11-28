@@ -317,6 +317,29 @@ def collate_fn(x: list["DataProtoItem"]):
     return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
 
+class indexWrapper:
+    def __init__(self, dataset) -> None:
+        self.dataset = dataset
+    def __len__(self) -> int:
+        return len(self.dataset)
+    def __getitem__(self, index):
+        return self.dataset[index], index
+        
+def collate_fn_with_indices(x: list[tuple["DataProtoItem", int]]):
+    batch = []
+    non_tensor_batch = []
+    indices = []
+    for data,idx in x:
+        batch.append(data.batch)
+        non_tensor_batch.append(data.non_tensor_batch)
+        indices.append(idx)
+    batch = torch.stack(batch).contiguous()
+    non_tensor_batch = list_of_dict_to_dict_of_list(non_tensor_batch)
+    for key, val in non_tensor_batch.items():
+        non_tensor_batch[key] = np.array(val, dtype=object)
+    return DataProto(batch=batch, non_tensor_batch=non_tensor_batch), torch.tensor(indices)
+
+
 @dataclass
 class DataProtoItem:
     # TODO(zhangchi.usc1992) add consistency check
@@ -763,7 +786,7 @@ class DataProto:
         self.meta_info = union_two_dict(self.meta_info, other.meta_info)
         return self
 
-    def make_iterator(self, mini_batch_size, epochs, seed=None, dataloader_kwargs=None):
+    def make_iterator(self, mini_batch_size, epochs, seed=None, dataloader_kwargs=None, return_indices=False):
         r"""Make an iterator from the DataProto. This is built upon that TensorDict can be used as a normal Pytorch
         dataset. See https://pytorch.org/tensordict/tutorials/data_fashion for more details.
 
@@ -791,15 +814,24 @@ class DataProto:
             generator = None
 
         assert isinstance(dataloader_kwargs, dict)
-        train_dataloader = DataLoader(
-            dataset=self, batch_size=mini_batch_size, collate_fn=collate_fn, generator=generator, **dataloader_kwargs
-        )
-
-        def get_data():
-            for _ in range(epochs):
-                for d in train_dataloader:
-                    d.meta_info = self.meta_info
-                    yield d
+        if return_indices:
+            train_dataloader = DataLoader(
+                dataset=indexWrapper(self), batch_size=mini_batch_size, collate_fn=collate_fn_with_indices, generator=generator, **dataloader_kwargs
+            )
+            def get_data():
+                for _ in range(epochs):
+                    for d, idx in train_dataloader:
+                        d.meta_info = self.meta_info
+                        yield d, idx
+        else:
+            train_dataloader = DataLoader(
+                dataset=self, batch_size=mini_batch_size, collate_fn=collate_fn, generator=generator, **dataloader_kwargs
+            )
+            def get_data():
+                for _ in range(epochs):
+                    for d in train_dataloader:
+                        d.meta_info = self.meta_info
+                        yield d
 
         return iter(get_data())
 
