@@ -54,8 +54,8 @@ bash /home/code/verl-gpu/k8s/patch/apply_mindspeed.sh
 
 #######################################
 
-export PYTHONPATH=/data01/huawei-2025/lq/routing_replay/vllm:/data01/huawei-2025/lq/routing_replay/vllm-ascend:$PYTHONPATH
-
+#export PYTHONPATH=/data01/huawei-2025/lq/routing_replay/vllm:/data01/huawei-2025/lq/routing_replay/vllm-ascend:$PYTHONPATH
+export PYTHONPATH=/data01/huawei-2025/lq/save_router/vllm:/data01/huawei-2025/lq/save_router/vllm-ascend:$PYTHONPATH
 
 
 source /usr/local/Ascend/ascend-toolkit/set_env.sh;
@@ -122,7 +122,7 @@ if [ "$RANK" = "0" ]; then
     # judge npu_count_int bigger than NNODES*NPU_PER_NODE
     if [ "$npu_count_int" -ge "$((NNODES*NPU_PER_NODE))" ]; then
       echo "Ray cluster is ready with $npu_count_int npu (from $npu_count NPU resources), starting Python script."
-      bash hw_run_dapo_deepseek_671b_megatron.sh | tee ${JOB_LOG_DIR_CURR}/ray_host/$(date +"%Y-%m-%d_%H-%M-%S")_ray.log
+      bash test.sh | tee ${JOB_LOG_DIR_CURR}/ray_host/$(date +"%Y-%m-%d_%H-%M-%S")_ray.log
       break
     fi
 

@@ -30,7 +30,7 @@ train_prompt_mini_bsz=8
 train_ppo_micro_batch_size_per_gpu=2
 infer_ppo_micro_batch_size_per_gpu=2
 # Paths
-MODEL_PATH=/data01/huawei-2025/gxj/Moonlight-16B-A3B
+MODEL_PATH=/data01/huawei-2025/gxj/Moonlight-16B-A3B-Instruct
 DIST_CKPT_PATH=/data01/huawei-2025/gxj/mcore_dist
 
 # RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}

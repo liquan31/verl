@@ -296,6 +296,7 @@ class vLLMRollout(BaseRollout):
             trust_remote_code=trust_remote_code,
             enable_expert_parallel=enable_infer_ep,
             seed=config.get("seed", 0),
+            enable_return_routed_experts=self.config.return_routing_info,
             **compilation_config,
             **self.lora_kwargs,
             **engine_kwargs,
@@ -431,7 +432,6 @@ class vLLMRollout(BaseRollout):
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             self.sampling_params.detokenize = True
-            self.sampling_params.return_routing_info = self.config.return_routing_info
             outputs = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
@@ -466,21 +466,29 @@ class vLLMRollout(BaseRollout):
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
             response = []
-            routing_infos = []
             rollout_log_probs = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
                     response.append(response_ids)
-                    routing_info = output.outputs[sample_id].routing_info
-                    if self.config.return_routing_info:
-                        routing_infos.append(routing_info)
                     if self.config.calculate_log_probs:
                         curr_log_prob = []
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
 
+            if self.config.return_routing_info:
+                routing_infos = []
+                for output in outputs:
+                    for sample_id in range(len(output.outputs)):
+                        routing_info = output.outputs[sample_id].routed_experts
+                        routing_infos.append(routing_info)
+                routing_infos_np = np.empty(len(routing_infos), dtype=object)
+                for i, r in enumerate(routing_infos):
+                    routing_infos_np[i] = r.tolist()
+                non_tensor_batch["routing_infos"] = routing_infos_np
+                # if rank == 0:
+                #     print(f"lq debug, routing_infos is {routing_infos}")
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
                 idx.device
             )
@@ -507,6 +515,8 @@ class vLLMRollout(BaseRollout):
         response_attention_mask = get_response_mask(
             response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
         )
+        print(f"lq debug, response_attention_mask is {response_attention_mask.sum(dim=-1)}, "
+              f"response is {(response!=163838).sum(dim=-1)}")
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
@@ -520,12 +530,6 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size,
         )
-        routing_infos_np = np.empty(len(routing_infos), dtype=object)
-        for i, r in enumerate(routing_infos):
-            routing_infos_np[i] = r.cpu().tolist()
-        non_tensor_batch["routing_infos"] = routing_infos_np
-        # if rank == 0:
-        #     print(f"lq debug, routing_infos is {routing_infos_np}")
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
