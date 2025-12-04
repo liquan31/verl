@@ -320,6 +320,7 @@ class vLLMRollout(BaseRollout):
             trust_remote_code=trust_remote_code,
             enable_expert_parallel=enable_infer_ep,
             seed=config.get("seed", 0),
+            enable_return_routed_experts=self.config.return_routing_info,
             **compilation_config,
             **self.lora_kwargs,
             **engine_kwargs,
@@ -499,6 +500,19 @@ class vLLMRollout(BaseRollout):
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
+
+            if self.config.return_routing_info:
+                routing_infos = []
+                for output in outputs:
+                    for sample_id in range(len(output.outputs)):
+                        routing_info = output.outputs[sample_id].routed_experts
+                        routing_infos.append(routing_info)
+                routing_infos_np = np.empty(len(routing_infos), dtype=object)
+                for i, r in enumerate(routing_infos):
+                    routing_infos_np[i] = r.tolist()
+                non_tensor_batch["routing_infos"] = routing_infos_np
+                # if rank == 0:
+                #     print(f"lq debug, routing_infos is {routing_infos}")
 
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
                 idx.device
