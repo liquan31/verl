@@ -512,7 +512,7 @@ class vLLMRollout(BaseRollout):
                     routing_infos_np[i] = r.tolist()
                 non_tensor_batch["routing_infos"] = routing_infos_np
                 # if rank == 0:
-                #     print(f"lq debug, routing_infos is {routing_infos}")
+                #     print(f"lq debug, routing_infos is {routing_infos_np}")
 
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(
                 idx.device
