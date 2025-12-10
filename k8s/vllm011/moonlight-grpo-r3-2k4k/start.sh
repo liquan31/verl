@@ -61,18 +61,18 @@ export HCCL_BUFFSIZE=300
 #! 规避模型加载时 权重读取错误的问题
 export VLLM_VERSION=0.11.0
 #bash /opt/verl/k8s/patch/apply_vllm-ascend.sh
-bash /home/code/verl_router_replay/k8s/patch/apply_vllm-ascend.sh
+bash /home/code/verl/k8s/patch/apply_vllm-ascend.sh
 
 #! #################  【Megatron patch】  #####################
 #! [Megatron]
-bash /home/code/verl_router_replay/k8s/patch/apply_megatron.sh
+bash /home/code/verl/k8s/patch/apply_megatron.sh
 
 #! #################  【MindSpeed patch】  #####################
 #! [MindSpeed]
 # export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
 # export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
 unset USE_CP_PATCH
-bash /home/code/verl_router_replay/k8s/patch/apply_mindspeed.sh
+bash /home/code/verl/k8s/patch/apply_mindspeed.sh
 
 
 #######################################
