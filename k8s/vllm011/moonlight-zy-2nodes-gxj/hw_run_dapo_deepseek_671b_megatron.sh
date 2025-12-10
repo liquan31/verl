@@ -115,6 +115,7 @@ echo "推理单实例大小: $((INFER_TP*INFER_EP))"
 echo "实例数: $((WORLD_SIZE/(INFER_TP*INFER_EP))) "
 echo "每个实例分配到的样本数: $((train_prompt_bsz*n_resp_per_prompt/(WORLD_SIZE/(INFER_TP*INFER_EP))))"
 
+### if use r3, "+actor_rollout_ref.rollout.return_routing_info=True" should be set
 RUNTIME_ENV=verl/trainer/mc2_env.yaml
 cd /opt/verl
 ray job submit --runtime-env="${RUNTIME_ENV}" \
@@ -186,6 +187,7 @@ ray job submit --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.temperature=${temperature} \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k=${top_k} \
+    +actor_rollout_ref.rollout.return_routing_info=True \
     actor_rollout_ref.rollout.val_kwargs.temperature=${temperature} \
     actor_rollout_ref.rollout.val_kwargs.top_p=${val_top_p} \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \

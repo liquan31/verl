@@ -766,7 +766,7 @@ class MegatronPPOActor(BasePPOActor):
             global_layer_names = unwarp_model.decoder.global_layer_names
             for micro_indices in indices:
                 micro_data_batches = data[micro_indices]
-                print(f"---- debug lyx: global_layer_names is {global_layer_names}, router_info is {type(micro_data_batches.non_tensor_batch['routing_infos'])} {len(micro_data_batches.non_tensor_batch['routing_infos'])} {len(micro_data_batches.non_tensor_batch['routing_infos'][0])} attention_mask is {micro_data_batches.batch['attention_mask'].shape}")
+                # print(f"---- debug lyx: global_layer_names is {global_layer_names}, router_info is {type(micro_data_batches.non_tensor_batch['routing_infos'])} {len(micro_data_batches.non_tensor_batch['routing_infos'])} {len(micro_data_batches.non_tensor_batch['routing_infos'][0])} attention_mask is {micro_data_batches.batch['attention_mask'].shape}")
                 router_info = get_preprocess_packed_route_info(
                     attention_mask=micro_data_batches.batch["attention_mask"].to(bool),
                     route_infos=micro_data_batches.non_tensor_batch["routing_infos"],
@@ -867,7 +867,7 @@ class MegatronPPOActor(BasePPOActor):
             if self.use_torch_profiler and self.prof and self.prof.enable:
                 self.prof.step()
         ### just for viewboard
-        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3" and os.environ.get("RECORD_R3_INFO", "0") == "1":
+        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3" and os.environ.get("RECORD_R3_INFO", "0") == "1" and ITERATION % int(os.environ.get("RECORD_R3_INFO_STEP", "1")) == 0:
             # if mpu.get_tensor_model_parallel_rank() == 0:
             rank = torch.distributed.get_rank()
             unwarp_model = get_wrap_model(self.actor_module[0])
