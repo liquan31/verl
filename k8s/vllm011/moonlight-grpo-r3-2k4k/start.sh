@@ -60,7 +60,7 @@ export HCCL_BUFFSIZE=300
 #! #################  【VLLM patch】  #####################
 #! 规避模型加载时 权重读取错误的问题
 export VLLM_VERSION=0.11.0
-#bash /opt/verl/k8s/patch/apply_vllm-ascend.sh
+# bash /opt/verl/k8s/patch/apply_vllm-ascend.sh
 bash /home/code/verl/k8s/patch/apply_vllm_r3.sh
 
 #! #################  【Megatron patch】  #####################
@@ -108,6 +108,7 @@ export DashboardPort=8888  # modify according to actual situation
 export ENABLE_ROUTING_REPLAY="R3"
 export ROUTING_REPLAY_STAGE="fallthrough"
 export RECORD_R3_INFO=1
+export RECORD_R3_INFO_STEP=5
 
 cd $cwd
 cnt=0

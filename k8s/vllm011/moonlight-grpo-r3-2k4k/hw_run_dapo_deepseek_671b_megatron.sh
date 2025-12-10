@@ -17,10 +17,11 @@ kl_loss_coef=0.001
 
 clip_ratio_low=0.2
 clip_ratio_high=0.28
-max_prompt_length=$((1024 * 1))
-max_response_length=$((1024 * 1))
+base_length=1024
+max_prompt_length=$((base_length * 2))
+max_response_length=$((base_length * 4))
 enable_overlong_buffer=False
-overlong_buffer_len=$((1024 * 1))
+overlong_buffer_len=$((base_length * 1))
 overlong_penalty_factor=1.0
 
 lr=2e-6
@@ -54,7 +55,7 @@ val_top_p=0.7
 # Performance Related Parameter
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
-infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
+infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
 
 optimizer_offload_fraction=1
 
