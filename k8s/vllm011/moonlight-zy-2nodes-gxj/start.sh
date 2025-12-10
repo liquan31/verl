@@ -15,6 +15,8 @@ export ASCEND_GLOBAL_LOG_LEVEL=3
 unset VLLM_FIX_WEIGHT_LOADING
 #!同步流程
 # export ASCEND_LAUNCH_BLOCKING=1
+#!修复
+export VLLM_ASCEND_ENABLE_NZ=0
 
 
 export HCCL_IF_BASE_PORT="14999"
@@ -60,6 +62,7 @@ export HCCL_BUFFSIZE=300
 #! #################  【VLLM patch】  #####################
 #! 规避模型加载时 权重读取错误的问题
 export VLLM_VERSION=0.11.0
+# bash /opt/verl/k8s/patch/apply_vllm-ascend.sh
 bash /home/code/verl_router_replay/k8s/patch/apply_vllm-ascend.sh
 
 #! #################  【Megatron patch】  #####################
@@ -68,8 +71,8 @@ bash /home/code/verl_router_replay/k8s/patch/apply_megatron.sh
 
 #! #################  【MindSpeed patch】  #####################
 #! [MindSpeed]
-# export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
-# export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
+#export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
+export USE_CP_PATCH=0
 unset USE_CP_PATCH
 bash /home/code/verl_router_replay/k8s/patch/apply_mindspeed.sh
 
@@ -82,7 +85,6 @@ source /opt/pyvenv/bin/activate;
 
 #! #################  【MindSpeed 预编译】  #####################
 
-# export VLLM_ASCEND_ENABLE_NZ=0
 bash /home/code/verl_router_replay/k8s/patch/pre_mindspeed_compile.sh
 
 

@@ -1,7 +1,7 @@
 apiVersion: mindxdl.gitee.com/v1
 kind: AscendJob
 metadata:
-  name: moonlight-16die-wlf-det  #sp-64-train-3b-moe-msrun #需要修改
+  name: moonlight-zy-2nodes-gxj  #sp-64-train-3b-moe-msrun #需要修改
   labels:
     framework: pytorch
     fault-scheduling: "force"
@@ -47,7 +47,7 @@ spec:
               command: ["/bin/bash", "-c"]
 
               args:
-                - "bash /home/code/verl_router_replay/k8s/beijing/moonlight-det-wlf/start.sh ;sleep 7d"
+                - "bash /home/code/verl/k8s/vllm011/moonlight-zy-2nodes-gxj/start.sh ;sleep 7d"
 
               ports:                          # default value containerPort: 2222 name: ascendjob-port if not set #  export MS_DEV_DUMP_IR_PASSES=hwopt_d_after_stream_assign,hwopt_d_end_opt_ge_graph,step_parallel_,validate,valid;
                 - containerPort: 60350        # determined by user
@@ -77,8 +77,6 @@ spec:
                   mountPath: /home/code
                 - name: data-path
                   mountPath: /data01
-                - name: tmp-path
-                  mountPath: /tmp
           volumes:
             - name: dshm
               emptyDir:
@@ -95,13 +93,10 @@ spec:
                 path: /etc/localtime                               # Configure the Docker time.
             - name: start-path
               hostPath:
-                path: /data01/ctyun/lyx/routing_replay
+                path: /data01/ctyun/lyx/routing_replay_061
             - name: data-path
               hostPath:
                 path: /data01
-            - name: tmp-path
-              hostPath:
-                path: /data02/tmp
     Worker:
       replicas: 1  #Master can only be 1
       restartPolicy: Never
@@ -119,7 +114,7 @@ spec:
                       - key: job-name
                         operator: In
                         values:
-                          -  moonlight-16die-wlf-det
+                          -  moonlight-zy-2nodes-gxj
                       - key: replica-type
                         operator: In
                         values:
@@ -145,7 +140,7 @@ spec:
               imagePullPolicy: IfNotPresent
               command: ["/bin/bash", "-c"]
               args:
-                - "bash /home/code/verl_router_replay/k8s/beijing/moonlight-det-wlf/start.sh ;sleep 7d"
+                - "bash /home/code/verl/k8s/vllm011/moonlight-zy-2nodes-gxj/start.sh ;sleep 7d"
               ports:                          # default value containerPort: 2222 name: ascendjob-port if not set #  export MS_DEV_DUMP_IR_PASSES=hwopt_d_after_stream_assign,hwopt_d_end_opt_ge_graph,step_parallel_,validate,valid;
                 - containerPort: 60350        # determined by user
                   name: ascendjob-port        # do not modify
@@ -173,8 +168,6 @@ spec:
                   mountPath: /home/code
                 - name: data-path
                   mountPath: /data01
-                - name: tmp-path
-                  mountPath: /tmp
           volumes:
             - name: dshm
               emptyDir:
@@ -191,10 +184,7 @@ spec:
                 path: /etc/localtime                               # Configure the Docker time.
             - name: start-path
               hostPath:
-                path: /data01/ctyun/lyx/routing_replay
+                path: /data01/ctyun/lyx/routing_replay_061
             - name: data-path
               hostPath:
                 path: /data01
-            - name: tmp-path
-              hostPath:
-                path: /data02/tmp

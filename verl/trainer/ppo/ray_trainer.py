@@ -1117,7 +1117,10 @@ class RayPPOTrainer:
                         )
                     else:  # Recompute old_log_probs
                         with marked_timer("old_log_prob", timing_raw, color="blue"):
-                            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                            if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R2":
+                                old_log_prob = self.actor_rollout_wg.compute_log_prob_use_dataloader(batch)
+                            else:
+                                old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                             entropys = old_log_prob.batch["entropys"]
                             response_masks = batch.batch["response_mask"]
                             loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode

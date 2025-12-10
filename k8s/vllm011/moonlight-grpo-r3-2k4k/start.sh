@@ -61,18 +61,18 @@ export HCCL_BUFFSIZE=300
 #! 规避模型加载时 权重读取错误的问题
 export VLLM_VERSION=0.11.0
 #bash /opt/verl/k8s/patch/apply_vllm-ascend.sh
-bash /opt/verl/k8s/patch/apply_vllm_r3.sh
+bash /home/code/verl_router_replay/k8s/patch/apply_vllm-ascend.sh
 
 #! #################  【Megatron patch】  #####################
 #! [Megatron]
-bash /opt/verl/k8s/patch/apply_megatron.sh
+bash /home/code/verl_router_replay/k8s/patch/apply_megatron.sh
 
 #! #################  【MindSpeed patch】  #####################
 #! [MindSpeed]
 # export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
 # export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
 unset USE_CP_PATCH
-bash /opt/verl/k8s/patch/apply_mindspeed.sh
+bash /home/code/verl_router_replay/k8s/patch/apply_mindspeed.sh
 
 
 #######################################
@@ -84,7 +84,7 @@ source /opt/pyvenv/bin/activate;
 #! #################  【MindSpeed 预编译】  #####################
 
 # export VLLM_ASCEND_ENABLE_NZ=0
-bash /opt/verl/k8s/patch/pre_mindspeed_compile.sh
+bash /home/code/verl_router_replay/k8s/patch/pre_mindspeed_compile.sh
 
 
 LIB_PATH=/opt/python3.10/lib/
@@ -104,6 +104,10 @@ export NNODES=$((WORLD_SIZE/NPU_PER_NODE))
 
 export ServerPort=6666     # modify according to actual situation
 export DashboardPort=8888  # modify according to actual situation
+
+export ENABLE_ROUTING_REPLAY="R3"
+export ROUTING_REPLAY_STAGE="fallthrough"
+export RECORD_R3_INFO=1
 
 cd $cwd
 cnt=0

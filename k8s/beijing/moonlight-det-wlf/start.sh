@@ -10,7 +10,14 @@ export RAY_DEDUP_LOGS=1
 # export HCCL_EXEC_TIMEOUT=3600
 export PYTORCH_NPU_ALLOC_CONF="max_split_size_mb:2048"
 export ASCEND_GLOBAL_LOG_LEVEL=3
-export USE_SEED=1234
+# export USE_SEED=1234
+# export VLLM_FIX_WEIGHT_LOADING=1
+unset VLLM_FIX_WEIGHT_LOADING
+#!同步流程
+# export ASCEND_LAUNCH_BLOCKING=1
+
+
+export HCCL_IF_BASE_PORT="14999"
 
 echo "Overwrite verl code"
 if [[ ! -d ../../../k8s ]];then
@@ -52,29 +59,41 @@ export HCCL_BUFFSIZE=300
 
 #! #################  【VLLM patch】  #####################
 #! 规避模型加载时 权重读取错误的问题
-bash /opt/verl/k8s/patch/apply_vllm-ascend.sh
+export VLLM_VERSION=0.11.0
+bash /home/code/verl_router_replay/k8s/patch/apply_vllm-ascend.sh
 
 #! #################  【Megatron patch】  #####################
 #! [Megatron]
-bash /opt/verl/k8s/patch/apply_megatron.sh
+bash /home/code/verl_router_replay/k8s/patch/apply_megatron.sh
 
 #! #################  【MindSpeed patch】  #####################
 #! [MindSpeed]
-bash /opt/verl/k8s/patch/apply_mindspeed.sh
+# export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
+# export USE_CP_PATCH=1 #! 如果要用CP，一定要开这个
+unset USE_CP_PATCH
+bash /home/code/verl_router_replay/k8s/patch/apply_mindspeed.sh
 
 
 #######################################
+
+export PYTHONPATH=/data01/ctyun/lyx/routing_replay/vllm_router_replay:/data01/ctyun/lyx/routing_replay/vllm-ascend_router_replay:$PYTHONPATH
 
 source /usr/local/Ascend/ascend-toolkit/set_env.sh;
 source /usr/local/Ascend/nnal/atb/set_env.sh;
 source /opt/pyvenv/bin/activate;
 
 #! #################  【MindSpeed 预编译】  #####################
-bash /opt/verl/k8s/patch/pre_mindspeed_compile.sh
+
+# export VLLM_ASCEND_ENABLE_NZ=0
+bash /home/code/verl_router_replay/k8s/patch/pre_mindspeed_compile.sh
 
 
 LIB_PATH=/opt/python3.10/lib/
 export LD_LIBRARY_PATH=$LIB_PATH:$LD_LIBRARY_PATH
+
+pip install /data01/huawei-2025/gxj/blobfile-3.0.0-py3-none-any.whl --no-deps
+pip install /data01/huawei-2025/gxj/lxml-6.0.2-cp310-cp310-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl --no-deps
+
 
 unset LOCAL_WORLD_SIZE
 # unset WORLD_SIZE
