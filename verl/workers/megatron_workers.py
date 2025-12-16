@@ -517,6 +517,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
+            old_stage = os.environ.get("ENABLE_ROUTING_REPLAY", "0") ### 避免注册时使用
+            old_record = os.environ.get("RECORD_R3_INFO", "0")
+            os.environ["ENABLE_ROUTING_REPLAY"] = "0"
+            os.environ["RECORD_R3_INFO"] = "0"
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 optim_config=None,
@@ -535,6 +539,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             if self._ref_is_offload_param:
                 offload_megatron_model_to_cpu(self.ref_module)
                 log_gpu_memory_usage("After offload ref params during init", logger=logger)
+            os.environ["ENABLE_ROUTING_REPLAY"] = old_stage
+            os.environ["RECORD_R3_INFO"] = old_record
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -737,7 +743,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
+        old_stage = os.environ.get("ENABLE_ROUTING_REPLAY", "0") ### 避免ref计算时使用
+        old_record = os.environ.get("RECORD_R3_INFO", "0")
+        os.environ["ENABLE_ROUTING_REPLAY"] = "0"
+        os.environ["RECORD_R3_INFO"] = "0"
         output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
+        os.environ["ENABLE_ROUTING_REPLAY"] = old_stage
+        os.environ["RECORD_R3_INFO"] = old_record
         output = DataProto.from_dict(tensors={"ref_log_prob": output})
         output = output.to("cpu")
         if self._ref_is_offload_param:
@@ -794,13 +806,16 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") != "0":
+        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") != "0" or os.environ.get("RECORD_R3_INFO", "0") == "1":
             os.environ["ROUTING_REPLAY_STAGE"] = "inference"
             if os.environ["ENABLE_ROUTING_REPLAY"] == "R3":
                     RoutingReplay.clear_all()
         output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
         if os.environ.get("ENABLE_ROUTING_REPLAY", "0") != "0":
             os.environ["ROUTING_REPLAY_STAGE"] = "fallthrough"
+        if os.environ.get("RECORD_R3_INFO", "0") == "1":
+            os.environ["ROUTING_REPLAY_STAGE"] = "fallthrough"
+            RoutingReplay.clear_all()
         output = DataProto.from_dict(
             tensors={"old_log_probs": output, "entropys": entropys},
             meta_info={"temperature": self.config.rollout.temperature},
@@ -1055,7 +1070,10 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         # create critic
-
+        old_stage = os.environ.get("ENABLE_ROUTING_REPLAY", "0") ### 避免注册时使用
+        old_record = os.environ.get("RECORD_R3_INFO", "0")
+        os.environ["ENABLE_ROUTING_REPLAY"] = "0"
+        os.environ["RECORD_R3_INFO"] = "0"
         from verl.utils.torch_dtypes import PrecisionType
 
         if self.config.model.get("external_lib", None) is not None:
@@ -1119,10 +1137,16 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             bridge=self.bridge,
             use_dist_checkpointing=self.config.megatron.use_dist_checkpointing,
         )
+        os.environ["ENABLE_ROUTING_REPLAY"] = old_stage
+        os.environ["RECORD_R3_INFO"] = old_record
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan")
     def compute_values(self, data: DataProto):
+        old_stage = os.environ.get("ENABLE_ROUTING_REPLAY", "0") ### 避免计算时使用
+        old_record = os.environ.get("RECORD_R3_INFO", "0")
+        os.environ["ENABLE_ROUTING_REPLAY"] = "0"
+        os.environ["RECORD_R3_INFO"] = "0"
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
@@ -1135,11 +1159,17 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         output = output.to("cpu")
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
+        os.environ["ENABLE_ROUTING_REPLAY"] = old_stage
+        os.environ["RECORD_R3_INFO"] = old_record
         return output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="pink")
     def update_critic(self, data: DataProto):
+        old_stage = os.environ.get("ENABLE_ROUTING_REPLAY", "0") ### 避免计算时使用
+        old_record = os.environ.get("RECORD_R3_INFO", "0")
+        os.environ["ENABLE_ROUTING_REPLAY"] = "0"
+        os.environ["RECORD_R3_INFO"] = "0"
         data = data.to(get_device_id())
 
         if self._is_offload_param:
@@ -1166,6 +1196,8 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         if self._is_offload_optimizer:
             offload_megatron_optimizer(self.critic_optimizer)
         output = output.to("cpu")
+        os.environ["ENABLE_ROUTING_REPLAY"] = old_stage
+        os.environ["RECORD_R3_INFO"] = old_record
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -1302,7 +1334,10 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         # create critic
-
+        old_stage = os.environ.get("ENABLE_ROUTING_REPLAY", "0") ### 避免注册时使用
+        old_record = os.environ.get("RECORD_R3_INFO", "0")
+        os.environ["ENABLE_ROUTING_REPLAY"] = "0"
+        os.environ["RECORD_R3_INFO"] = "0"
         from verl.utils.torch_dtypes import PrecisionType
 
         if self.config.model.get("external_lib", None) is not None:
@@ -1346,16 +1381,24 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             sft_tokenizer=sft_tokenizer,
             rm_tokenizer=rm_tokenizer,
         )
+        os.environ["ENABLE_ROUTING_REPLAY"] = old_stage
+        os.environ["RECORD_R3_INFO"] = old_record
 
     # TODO: reward model use itself tokenizer instead of sft tokenizer
     # the input_ids, responses, attention_mask and position_ids may be different!
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward"))
     @DistProfiler.annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
+        old_stage = os.environ.get("ENABLE_ROUTING_REPLAY", "0") ### 避免计算时使用
+        old_record = os.environ.get("RECORD_R3_INFO", "0")
+        os.environ["ENABLE_ROUTING_REPLAY"] = "0"
+        os.environ["RECORD_R3_INFO"] = "0"
         data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         data = data.to(get_device_id())
         output = self.rm.compute_reward(data)
         output = output.to("cpu")
+        os.environ["ENABLE_ROUTING_REPLAY"] = old_stage
+        os.environ["RECORD_R3_INFO"] = old_record
         return output

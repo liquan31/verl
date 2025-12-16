@@ -308,6 +308,7 @@ class MegatronPPOActor(BasePPOActor):
         Returns:
             DataProto: torch.Tensor: the log_prob tensor
         """
+        global ITERATION
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
         max_token_len = data.meta_info.get("max_token_len", None)
@@ -398,6 +399,41 @@ class MegatronPPOActor(BasePPOActor):
                         async_op=False,
                     )
                     entropys = entropys.to("cpu")
+            ### just for viewboard
+            if os.environ.get("RECORD_R3_INFO", "0") == "1" and ITERATION % int(os.environ.get("RECORD_R3_INFO_STEP", "1")) == 0:
+                rank = torch.distributed.get_rank()
+                unwarp_model = get_wrap_model(self.actor_module[0])
+                global_layer_numbers = unwarp_model.decoder.global_layer_numbers
+                global_layer_names = unwarp_model.decoder.global_layer_names
+                offset = 0 if len(RoutingReplay.all_routing_replays) == len(global_layer_names) else len(global_layer_names)
+                rollout_top_indices_lists = []
+                actor_top_indices_lists = []
+                for i, L in enumerate(global_layer_names):
+                    rollout_top_indices_lists.append(torch.cat(RoutingReplay.all_routing_replays[i+offset].top_indices_list, dim=0))
+                    actor_top_indices_lists.append(torch.cat(RoutingReplay.all_routing_replays[i+offset].top_indices_record_list, dim=0))
+                if mpu.get_tensor_model_parallel_rank() != mpu.get_tensor_model_parallel_world_size()-1:
+                    save_dict = {
+                        "global_layer_names": np.array(global_layer_names),
+                        "rollout_top_indices": torch.stack(rollout_top_indices_lists, dim=0).numpy(),
+                        "actor_top_indices": torch.stack(actor_top_indices_lists, dim=0).numpy(),
+                        "rank_info": mpu.get_all_ranks(),
+                    }
+                else:
+                    rollout_top_indices = torch.stack(rollout_top_indices_lists, dim=0).numpy()
+                    actor_top_indices = torch.stack(actor_top_indices_lists, dim=0).numpy()
+                    topK = rollout_top_indices.shape[-1]
+                    pad_pattern = np.arange(topK)
+                    matches = np.all(rollout_top_indices == pad_pattern, axis=-1)
+                    pad_mask = np.all(matches, axis=0)
+                    save_dict = {
+                        "global_layer_names": np.array(global_layer_names),
+                        "rollout_top_indices": rollout_top_indices[:, ~pad_mask, :],
+                        "actor_top_indices": actor_top_indices[:, ~pad_mask, :],
+                        "rank_info": mpu.get_all_ranks(),
+                    }
+                np.savez_compressed(f"{os.environ['JOB_LOG_DIR_CURR']}/rank_{rank}_iteration_{ITERATION}.npz", **save_dict)
+            if os.environ.get("RECORD_R3_INFO", "0") == "1":
+                ITERATION += 1
 
         # add empty cache after each compute
         get_torch_device().empty_cache()
@@ -456,9 +492,9 @@ class MegatronPPOActor(BasePPOActor):
             select_keys.append("rollout_log_probs")
         self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         if self.has_multi_modal_inputs:
-            data = data.select(select_keys, ["multi_modal_inputs"]+([] if "routing_infos" not in data.non_tensor_batch.keys() else ["routing_infos"]))
+            data = data.select(select_keys, ["multi_modal_inputs"]+([] if (("routing_infos" not in data.non_tensor_batch.keys()) or (os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "0" and os.environ.get("RECORD_R3_INFO", "0") == "0")) else ["routing_infos"]))
         else:
-            data = data.select(batch_keys=select_keys, non_tensor_batch_keys=None if "routing_infos" not in data.non_tensor_batch.keys() else ["routing_infos"])
+            data = data.select(batch_keys=select_keys, non_tensor_batch_keys=None if (("routing_infos" not in data.non_tensor_batch.keys()) or (os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "0" and os.environ.get("RECORD_R3_INFO", "0") == "0")) else ["routing_infos"])
         return data.make_iterator(
             mini_batch_size=self.config.ppo_mini_batch_size,
             epochs=self.config.ppo_epochs,
@@ -760,7 +796,7 @@ class MegatronPPOActor(BasePPOActor):
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.actor_module))
 
-        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3":
+        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3" or os.environ.get("RECORD_R3_INFO", "0") == "1":
             unwarp_model = get_wrap_model(self.actor_module[0])
             global_layer_numbers = unwarp_model.decoder.global_layer_numbers
             global_layer_names = unwarp_model.decoder.global_layer_names
@@ -823,7 +859,7 @@ class MegatronPPOActor(BasePPOActor):
             and users have to combine the output in each dp rank manually.
 
         """
-        global ITERATION
+        # global ITERATION
         metrics = {}
         if self.use_torch_profiler and self.prof and self.prof.enable:
             self.prof.start()
@@ -866,42 +902,9 @@ class MegatronPPOActor(BasePPOActor):
                 raise NotImplementedError
             if self.use_torch_profiler and self.prof and self.prof.enable:
                 self.prof.step()
-        ### just for viewboard
-        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3" and os.environ.get("RECORD_R3_INFO", "0") == "1" and ITERATION % int(os.environ.get("RECORD_R3_INFO_STEP", "1")) == 0:
-            # if mpu.get_tensor_model_parallel_rank() == 0:
-            rank = torch.distributed.get_rank()
-            unwarp_model = get_wrap_model(self.actor_module[0])
-            global_layer_numbers = unwarp_model.decoder.global_layer_numbers
-            global_layer_names = unwarp_model.decoder.global_layer_names
-            offset = 0 if len(RoutingReplay.all_routing_replays) == len(global_layer_names) else len(global_layer_names)
-            rollout_top_indices_lists = []
-            actor_top_indices_lists = []
-            for i, L in enumerate(global_layer_names):
-                rollout_top_indices_lists.append(torch.cat(RoutingReplay.all_routing_replays[i+offset].top_indices_list, dim=0))
-                actor_top_indices_lists.append(torch.cat(RoutingReplay.all_routing_replays[i+offset].top_indices_record_list, dim=0))
-            if mpu.get_tensor_model_parallel_rank() != mpu.get_tensor_model_parallel_world_size()-1:
-                save_dict = {
-                    "global_layer_names": np.array(global_layer_names),
-                    "rollout_top_indices": torch.stack(rollout_top_indices_lists, dim=0).numpy(),
-                    "actor_top_indices": torch.stack(actor_top_indices_lists, dim=0).numpy(),
-                }
-            else:
-                rollout_top_indices = torch.stack(rollout_top_indices_lists, dim=0).numpy()
-                actor_top_indices = torch.stack(actor_top_indices_lists, dim=0).numpy()
-                topK = rollout_top_indices.shape[-1]
-                pad_pattern = np.arange(topK)
-                matches = np.all(rollout_top_indices == pad_pattern, axis=-1)
-                pad_mask = np.all(matches, axis=0)
-                save_dict = {
-                    "global_layer_names": np.array(global_layer_names),
-                    "rollout_top_indices": rollout_top_indices[:, ~pad_mask, :],
-                    "actor_top_indices": actor_top_indices[:, ~pad_mask, :],
-                }
-            np.savez_compressed(f"{os.environ['JOB_LOG_DIR_CURR']}/rank_{rank}_iteration_{ITERATION}.npz", **save_dict)
         # add empty cache after each compute
         if self.use_torch_profiler and self.prof and self.prof.enable:
             self.prof.stop_and_save()
             self.prof.stop_trace()
         get_torch_device().empty_cache()
-        ITERATION += 1
         return metrics

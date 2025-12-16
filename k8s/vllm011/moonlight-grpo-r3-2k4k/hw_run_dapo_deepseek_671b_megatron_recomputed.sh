@@ -4,7 +4,7 @@ echo ">>Starting script at: $(date), path = $(pwd)"
 EXP_DIR=/home/code/wlf/logs/$(date +%Y%m%d_%H%M%S)
 NGPUS_PER_NODES=${NPU_PER_NODE}
 project_name='moonlight'
-exp_name='DAPO-MoonLight-16b-megatron-4NODES-16k'
+exp_name='DAPO-MoonLight-16b-megatron-4NODES'
 
 adv_estimator=grpo
 
@@ -19,20 +19,14 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 base_length=1024
 max_prompt_length=$((base_length * 2))
-max_response_length=$((base_length * 16))
-overlong_buffer_len=$((base_length * 1))
-#max_prompt_length=$((128))
-#max_response_length=$((128))
-#overlong_buffer_len=$((128))
+max_response_length=$((base_length * 4))
 enable_overlong_buffer=False
+overlong_buffer_len=$((base_length * 1))
 overlong_penalty_factor=1.0
 
 lr=2e-6
 loss_agg_mode="token-mean"
 balance_batch=False
-#train_prompt_bsz=16
-#train_prompt_mini_bsz=8
-#n_resp_per_prompt=4
 train_prompt_bsz=128
 train_prompt_mini_bsz=32
 n_resp_per_prompt=16
@@ -40,7 +34,7 @@ train_ppo_micro_batch_size_per_gpu=2
 infer_ppo_micro_batch_size_per_gpu=2
 
 # Paths
-MODEL_PATH=/data01/huawei-2025/weight/Moonlight-16B-A3B-Instruct-zy-32k
+MODEL_PATH=/data01/huawei-2025/weight/Moonlight-16B-A3B-Instruct-32k
 DIST_CKPT_PATH=/data01/huawei-2025/gxj/mcore_dist
 
 CKPTS_DIR=/data01/huawei-2025/weight/CKPT/ckpt-${exp_name}
@@ -61,7 +55,7 @@ val_top_p=0.7
 # Performance Related Parameter
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
-infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
+infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
 
 optimizer_offload_fraction=1
 
@@ -69,13 +63,13 @@ optimizer_offload_fraction=1
 COMMON_PP=${COMMON_PP:-4}
 COMMON_VPP=${COMMON_VPP:-null}
 COMMON_CP=${COMMON_CP:-1}
-COMMON_TP=${COMMON_TP:-8}
-COMMON_EP=${COMMON_EP:-8}
+COMMON_TP=${COMMON_TP:-4}
+COMMON_EP=${COMMON_EP:-4}
 COMMON_ETP=${COMMON_ETP:-1}
 
 TRAIN_TP=${TRAIN_TP:-$COMMON_TP}
 INFER_TP=${INFER_TP:-2}
-INFER_DP=${INFER_DP:-8}
+INFER_DP=${INFER_DP:-4}
 
 ACTOR_PP=${ACTOR_PP:-$COMMON_PP}
 ACTOR_VPP=${ACTOR_VPP:-$COMMON_VPP}
@@ -161,6 +155,9 @@ ray job submit --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.optim.lr=${lr} \
     +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=$first_layer \
     +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=$last_layer \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
     +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_offload_fraction=${optimizer_offload_fraction} \
     +actor_rollout_ref.actor.optim.override_optimizer_config.use_precision_aware_optimizer=True \
     +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_cpu_offload=True \
@@ -184,14 +181,15 @@ ray job submit --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${infer_ppo_micro_batch_size_per_gpu} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${INFER_TP} \
-    actor_rollout_ref.rollout.data_parallel_size=8 \
+    actor_rollout_ref.rollout.data_parallel_size=${INFER_DP} \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
     actor_rollout_ref.rollout.temperature=${temperature} \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k=${top_k} \
+    +actor_rollout_ref.rollout.return_routing_info=True \
     actor_rollout_ref.rollout.val_kwargs.temperature=${temperature} \
     actor_rollout_ref.rollout.val_kwargs.top_p=${val_top_p} \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \

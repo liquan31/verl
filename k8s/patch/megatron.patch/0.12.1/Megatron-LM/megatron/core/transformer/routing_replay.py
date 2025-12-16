@@ -78,9 +78,6 @@ def get_routing_replay_compute_topk(old_compute_topk):
                 ), f"top_indices shape {top_indices.shape} does not match scores shape {scores.shape} and topk {topk}"
                 probs = scores.gather(1, top_indices)
             elif routing_replay_stage == "replay_forward":
-                if os.environ.get("RECORD_R3_INFO", "0") == "1":
-                    _, top_indices_viewboard = old_compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
-                    ROUTING_REPLAY.recompute_record(top_indices_viewboard)
                 top_indices = ROUTING_REPLAY.pop_forward()
                 assert (
                     top_indices.shape[0] == scores.shape[0] and top_indices.shape[1] == topk
@@ -94,13 +91,16 @@ def get_routing_replay_compute_topk(old_compute_topk):
                 probs = scores.gather(1, top_indices)
             return probs, top_indices
         else:
-            return old_compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
+            probs, top_indices = old_compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
+            if os.environ.get("RECORD_R3_INFO", "0") == "1" and os.environ.get("ROUTING_REPLAY_STAGE", "fallthrough") == "inference":
+                ROUTING_REPLAY.recompute_record(top_indices)
+            return probs, top_indices
 
     return compute_topk
 
 
 def register_routing_replay(module):
-    if os.environ.get("ENABLE_ROUTING_REPLAY", "0") != "0":
+    if os.environ.get("ENABLE_ROUTING_REPLAY", "0") != "0" or os.environ.get("RECORD_R3_INFO", "0") == "1":
         module.routing_replay = RoutingReplay()
 
         def pre_forward_hook(*args, **kwargs):

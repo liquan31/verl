@@ -24,7 +24,8 @@ def get_preprocess_packed_route_info(
     attention_mask: torch.Tensor, route_infos: np.ndarray, layer_ids: list ### [b, L, seqlen, k]
 ):
     batch_size = attention_mask.shape[0]
-    topK = len(route_infos[0][0][0])
+    route_infos = torch.tensor(route_infos, dtype=torch.int64)
+    topK = route_infos.shape[-1]
     seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
     route_infos_lens_in_batch = torch.tensor([len(route_infos[i][0]) for i in range(len(route_infos))])
     tp_size = mpu.get_tensor_model_parallel_world_size()
@@ -48,7 +49,7 @@ def get_preprocess_packed_route_info(
     shape = [len(layer_ids), sum(seqlens_in_batch_padded_cpu) // cp_size, topK]
     
     ### 默认router配置是0~k
-    route_infos_rmpad = torch.arange(topK, dtype=torch.int64, device=attention_mask.device).expand(*shape).clone() ### expand并没有重新开辟内存，只是改变了视图
+    route_infos_rmpad = torch.arange(topK, dtype=torch.int64).expand(*shape).clone() ### expand并没有重新开辟内存，只是改变了视图
     for idx, layer in enumerate(layer_ids):
         for i in range(batch_size):
             if cp_size <= 1:

@@ -2,6 +2,8 @@
 
 import math
 from typing import List, Optional, Union
+import os
+from megatron.core.transformer.routing_replay import get_routing_replay_compute_topk
 
 import torch
 
@@ -534,8 +536,8 @@ def topk_softmax_with_capacity(
         else:
             return torch.topk(scores, k=topk, dim=1)
     
-    from megatron.core.transformer.routing_replay import get_routing_replay_compute_topk
-    compute_topk = get_routing_replay_compute_topk(compute_topk)
+    if (os.environ.get("ENABLE_ROUTING_REPLAY", "0") != "0" or os.environ.get("RECORD_R3_INFO", "0") == "1") and os.environ.get("ROUTING_REPLAY_STAGE", "fallthrough") != "fallthrough": ### 避免ref使用router_replay
+        compute_topk = get_routing_replay_compute_topk(compute_topk)
 
     if score_function == "softmax":
         if use_pre_softmax:
