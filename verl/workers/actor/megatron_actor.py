@@ -399,41 +399,41 @@ class MegatronPPOActor(BasePPOActor):
                         async_op=False,
                     )
                     entropys = entropys.to("cpu")
-            ### just for viewboard
-            if os.environ.get("RECORD_R3_INFO", "0") == "1" and ITERATION % int(os.environ.get("RECORD_R3_INFO_STEP", "1")) == 0:
-                rank = torch.distributed.get_rank()
-                unwarp_model = get_wrap_model(self.actor_module[0])
-                global_layer_numbers = unwarp_model.decoder.global_layer_numbers
-                global_layer_names = unwarp_model.decoder.global_layer_names
-                offset = 0 if len(RoutingReplay.all_routing_replays) == len(global_layer_names) else len(global_layer_names)
-                rollout_top_indices_lists = []
-                actor_top_indices_lists = []
-                for i, L in enumerate(global_layer_names):
-                    rollout_top_indices_lists.append(torch.cat(RoutingReplay.all_routing_replays[i+offset].top_indices_list, dim=0))
-                    actor_top_indices_lists.append(torch.cat(RoutingReplay.all_routing_replays[i+offset].top_indices_record_list, dim=0))
-                if mpu.get_tensor_model_parallel_rank() != mpu.get_tensor_model_parallel_world_size()-1:
-                    save_dict = {
-                        "global_layer_names": np.array(global_layer_names),
-                        "rollout_top_indices": torch.stack(rollout_top_indices_lists, dim=0).numpy(),
-                        "actor_top_indices": torch.stack(actor_top_indices_lists, dim=0).numpy(),
-                        "rank_info": mpu.get_all_ranks(),
-                    }
-                else:
-                    rollout_top_indices = torch.stack(rollout_top_indices_lists, dim=0).numpy()
-                    actor_top_indices = torch.stack(actor_top_indices_lists, dim=0).numpy()
-                    topK = rollout_top_indices.shape[-1]
-                    pad_pattern = np.arange(topK)
-                    matches = np.all(rollout_top_indices == pad_pattern, axis=-1)
-                    pad_mask = np.all(matches, axis=0)
-                    save_dict = {
-                        "global_layer_names": np.array(global_layer_names),
-                        "rollout_top_indices": rollout_top_indices[:, ~pad_mask, :],
-                        "actor_top_indices": actor_top_indices[:, ~pad_mask, :],
-                        "rank_info": mpu.get_all_ranks(),
-                    }
-                np.savez_compressed(f"{os.environ['JOB_LOG_DIR_CURR']}/rank_{rank}_iteration_{ITERATION}.npz", **save_dict)
-            if os.environ.get("RECORD_R3_INFO", "0") == "1":
-                ITERATION += 1
+                ### just for viewboard
+                if os.environ.get("RECORD_R3_INFO", "0") == "1" and ITERATION % int(os.environ.get("RECORD_R3_INFO_STEP", "1")) == 0:
+                    rank = torch.distributed.get_rank()
+                    unwarp_model = get_wrap_model(self.actor_module[0])
+                    global_layer_numbers = unwarp_model.decoder.global_layer_numbers
+                    global_layer_names = unwarp_model.decoder.global_layer_names
+                    offset = 0 if len(RoutingReplay.all_routing_replays) == len(global_layer_names) else len(global_layer_names)
+                    rollout_top_indices_lists = []
+                    actor_top_indices_lists = []
+                    for i, L in enumerate(global_layer_names):
+                        rollout_top_indices_lists.append(torch.cat(RoutingReplay.all_routing_replays[i+offset].top_indices_list, dim=0))
+                        actor_top_indices_lists.append(torch.cat(RoutingReplay.all_routing_replays[i+offset].top_indices_record_list, dim=0))
+                    if mpu.get_tensor_model_parallel_rank() != mpu.get_tensor_model_parallel_world_size()-1:
+                        save_dict = {
+                            "global_layer_names": np.array(global_layer_names),
+                            "rollout_top_indices": torch.stack(rollout_top_indices_lists, dim=0).numpy(),
+                            "actor_top_indices": torch.stack(actor_top_indices_lists, dim=0).numpy(),
+                            "rank_info": mpu.get_all_ranks(),
+                        }
+                    else:
+                        rollout_top_indices = torch.stack(rollout_top_indices_lists, dim=0).numpy()
+                        actor_top_indices = torch.stack(actor_top_indices_lists, dim=0).numpy()
+                        topK = rollout_top_indices.shape[-1]
+                        pad_pattern = np.arange(topK)
+                        matches = np.all(rollout_top_indices == pad_pattern, axis=-1)
+                        pad_mask = np.all(matches, axis=0)
+                        save_dict = {
+                            "global_layer_names": np.array(global_layer_names),
+                            "rollout_top_indices": rollout_top_indices[:, ~pad_mask, :],
+                            "actor_top_indices": actor_top_indices[:, ~pad_mask, :],
+                            "rank_info": mpu.get_all_ranks(),
+                        }
+                    np.savez_compressed(f"{os.environ['JOB_LOG_DIR_CURR']}/rank_{rank}_iteration_{ITERATION}.npz", **save_dict)
+                if os.environ.get("RECORD_R3_INFO", "0") == "1":
+                    ITERATION += 1
 
         # add empty cache after each compute
         get_torch_device().empty_cache()
@@ -796,7 +796,7 @@ class MegatronPPOActor(BasePPOActor):
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.actor_module))
 
-        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3" or os.environ.get("RECORD_R3_INFO", "0") == "1":
+        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3" or (os.environ.get("RECORD_R3_INFO", "0") == "1" and os.environ.get("ROUTING_REPLAY_STAGE", "fallthrough") == "inference"):
             unwarp_model = get_wrap_model(self.actor_module[0])
             global_layer_numbers = unwarp_model.decoder.global_layer_numbers
             global_layer_names = unwarp_model.decoder.global_layer_names

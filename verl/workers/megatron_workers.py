@@ -809,7 +809,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if os.environ.get("ENABLE_ROUTING_REPLAY", "0") != "0" or os.environ.get("RECORD_R3_INFO", "0") == "1":
             os.environ["ROUTING_REPLAY_STAGE"] = "inference"
             if os.environ["ENABLE_ROUTING_REPLAY"] == "R3":
-                    RoutingReplay.clear_all()
+                RoutingReplay.clear_all()
         output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
         if os.environ.get("ENABLE_ROUTING_REPLAY", "0") != "0":
             os.environ["ROUTING_REPLAY_STAGE"] = "fallthrough"
