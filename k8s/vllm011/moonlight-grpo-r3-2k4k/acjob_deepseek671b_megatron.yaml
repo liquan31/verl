@@ -1,7 +1,7 @@
 apiVersion: mindxdl.gitee.com/v1
 kind: AscendJob
 metadata:
-  name: moonlight-grpo-r3-2k4k  #sp-64-train-3b-moe-msrun #需要修改
+  name: moonlight-grpo-r3-2k4k-jsd  #sp-64-train-3b-moe-msrun #需要修改
   labels:
     framework: pytorch
     fault-scheduling: "force"
@@ -95,7 +95,7 @@ spec:
                 path: /etc/localtime                               # Configure the Docker time.
             - name: start-path
               hostPath:
-                path: /data01/ctyun/lyx/routing_replay_061
+                path: /data01/ctyun/jinsd
             - name: data-path
               hostPath:
                 path: /data01
@@ -191,7 +191,7 @@ spec:
                 path: /etc/localtime                               # Configure the Docker time.
             - name: start-path
               hostPath:
-                path: /data01/ctyun/lyx/routing_replay_061
+                path: /data01/ctyun/jinsd
             - name: data-path
               hostPath:
                 path: /data01

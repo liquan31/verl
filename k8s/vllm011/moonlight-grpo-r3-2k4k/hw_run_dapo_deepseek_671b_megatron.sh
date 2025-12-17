@@ -116,6 +116,8 @@ USE_DIST_CKPT=False
 first_layer=8
 last_layer=1
 
+save_prob_interval=1
+
 # 128*16 /4
 echo "推理单实例大小: $((INFER_TP*INFER_EP))"
 echo "实例数: $((WORLD_SIZE/(INFER_TP*INFER_EP))) "
@@ -201,6 +203,7 @@ ray job submit --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.free_cache_engine=True \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.max_num_seqs=128 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${infer_ppo_micro_batch_size_per_gpu} \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
@@ -219,7 +222,8 @@ ray job submit --runtime-env="${RUNTIME_ENV}" \
     +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.log=False \
     +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
-    trainer.logger=['console'] \
+    trainer.logger=['console','tensorboard'] \
+    +trainer.save_prob_interval=${save_prob_interval} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node="${NGPUS_PER_NODES}" \

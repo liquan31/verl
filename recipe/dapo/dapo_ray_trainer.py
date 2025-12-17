@@ -41,6 +41,7 @@ from verl.utils.metric import reduce_metrics
 from verl.utils.profiler import marked_timer
 from verl.utils.rollout_skip import RolloutSkip
 
+from datetime import datetime
 
 class RayDAPOTrainer(RayPPOTrainer):
     """
@@ -49,6 +50,8 @@ class RayDAPOTrainer(RayPPOTrainer):
 
     def compute_kl_related_metrics(self, batch: DataProto, metrics: dict, timing_raw: dict):
         batch.batch["response_mask"] = compute_response_mask(batch)
+        
+        pprint("[DEBUG] start to compute old_log_prob")
 
         # recompute old_log_probs
         with marked_timer("old_log_prob", timing_raw, "blue"):
@@ -64,6 +67,60 @@ class RayDAPOTrainer(RayPPOTrainer):
             metrics.update(old_log_prob_metrics)
             old_log_prob.batch.pop("entropys")
             batch = batch.union(old_log_prob)
+
+
+            if "rollout_log_probs" in batch.batch.keys():
+                # TODO: we may want to add diff of probs too.
+                rollout_old_log_probs = batch.batch["rollout_log_probs"]
+                # rollout
+                actor_old_log_probs = batch.batch["old_log_probs"]
+                # recompute
+                attention_mask = batch.batch["attention_mask"]
+                responses = batch.batch["responses"]
+                response_length = responses.size(1)
+                response_mask = attention_mask[:, -response_length:]
+                rollout_probs = torch.exp(rollout_old_log_probs)
+                actor_probs = torch.exp(actor_old_log_probs)
+
+                rollout_probs_diff = torch.abs(rollout_probs - actor_probs)
+                rollout_probs_diff = torch.masked_select(rollout_probs_diff, response_mask.bool())
+                rollout_probs_diff_max = torch.max(rollout_probs_diff)
+                rollout_probs_diff_mean = torch.mean(rollout_probs_diff)
+                rollout_probs_diff_std = torch.std(rollout_probs_diff)
+                metrics.update(
+                    {
+                        "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
+                        "training/rollout_probs_diff_mean": rollout_probs_diff_mean.detach().item(),
+                        "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
+                    }
+                )
+
+            if self.global_steps % self.config.trainer.save_prob_interval == 0 and response_mask is not None:
+                
+                masked_rollout_log_probs = torch.masked_select(rollout_old_log_probs, response_mask.bool())
+                masked_actor_log_probs = torch.masked_select(actor_old_log_probs, response_mask.bool())
+                
+                print(f"[DEBUG] masked_rollout_log_probs shape: {masked_rollout_log_probs.shape}")
+                print(f"[DEBUG] masked_actor_log_probs shape: {masked_actor_log_probs.shape}")
+                
+                if masked_rollout_log_probs.numel() > 0 and masked_actor_log_probs.numel() > 0:
+                    try:
+                        rollout_np = masked_rollout_log_probs.cpu().numpy()
+                        train_np = masked_actor_log_probs.cpu().numpy()
+                        
+                        log_probs_dict = {
+                            'rollout_log_probs': rollout_np,
+                            'train_log_probs': train_np
+                        }
+
+                        save_filename = os.path.join(self.log_probs_dir, f'log-probs-step{self.global_steps}.npy')
+
+                        np.save(save_filename, log_probs_dict)
+                        
+                        print(f"[DEBUG] Saved log_probs data to {save_filename}")
+                        print(f"[DEBUG] Rollout log_probs shape: {rollout_np.shape}, Train log_probs shape: {train_np.shape}")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to save log_probs data: {e}")
 
         if self.use_reference_policy:
             # compute reference log_prob
@@ -99,6 +156,13 @@ class RayDAPOTrainer(RayPPOTrainer):
 
         # load checkpoint before doing anything
         self._load_checkpoint()
+
+        # ++prob: 记录log_probs数据
+        job_log_dir = os.environ.get('JOB_LOG_DIR_CURR', '/home/code/logs/default')
+        time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.log_probs_dir = os.path.join(job_log_dir, 'probs', time_str)
+        os.makedirs(self.log_probs_dir, exist_ok=True)
+
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
@@ -203,6 +267,8 @@ class RayDAPOTrainer(RayPPOTrainer):
                     new_batch = new_batch.union(gen_batch_output)
 
                     if self.config.algorithm.use_kl_in_reward:
+
+                        # 默认是false
                         # We need these metrics for apply_kl_penalty if using kl in reward
                         new_batch = self.compute_kl_related_metrics(new_batch, metrics, timing_raw)
                         # otherwise, we will compute those after dynamic sampling

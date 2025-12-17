@@ -105,9 +105,16 @@ export NNODES=$((WORLD_SIZE/NPU_PER_NODE))
 export ServerPort=6666     # modify according to actual situation
 export DashboardPort=8888  # modify according to actual situation
 
+# Router Replay
 export ENABLE_ROUTING_REPLAY="R3"
 export ROUTING_REPLAY_STAGE="fallthrough"
 export RECORD_R3_INFO=0
+export RECORD_R3_INFO_STEP=1
+
+# export ENABLE_ROUTING_REPLAY=0
+# export ROUTING_REPLAY_STAGE="fallthrough"
+# export RECORD_R3_INFO=1
+# export RECORD_R3_INFO_STEP=1
 
 cd $cwd
 cnt=0
