@@ -796,7 +796,7 @@ class MegatronPPOActor(BasePPOActor):
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.actor_module))
 
-        if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3" or (os.environ.get("RECORD_R3_INFO", "0") == "1" and os.environ.get("ROUTING_REPLAY_STAGE", "fallthrough") == "inference"):
+        if (os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "R3" and os.environ.get("ROUTING_REPLAY_STAGE", "fallthrough") != "fallthrough") or (os.environ.get("RECORD_R3_INFO", "0") == "1" and os.environ.get("ROUTING_REPLAY_STAGE", "fallthrough") == "inference"):
             unwarp_model = get_wrap_model(self.actor_module[0])
             global_layer_numbers = unwarp_model.decoder.global_layer_numbers
             global_layer_names = unwarp_model.decoder.global_layer_names
