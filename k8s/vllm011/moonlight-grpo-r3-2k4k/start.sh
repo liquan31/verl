@@ -105,9 +105,11 @@ export NNODES=$((WORLD_SIZE/NPU_PER_NODE))
 export ServerPort=6666     # modify according to actual situation
 export DashboardPort=8888  # modify according to actual situation
 
-export ENABLE_ROUTING_REPLAY="R3"
+export ENABLE_ROUTING_REPLAY="R3" ### 0 with viewboard
 export ROUTING_REPLAY_STAGE="fallthrough"
 export RECORD_R3_INFO=0
+export RECORD_R3_INFO_STEP=1
+
 
 cd $cwd
 cnt=0
